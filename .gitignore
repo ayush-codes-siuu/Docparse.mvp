@@ -1,0 +1,29 @@
+# Environment
+.env
+.env.*
+.streamlit/secrets.toml
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files
+output/*.json
+output/*.csv
+.claude/
