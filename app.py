@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 
 import streamlit as st
@@ -59,12 +60,55 @@ if not st.session_state.authenticated:
     st.stop()
 
 
+# ---------------------------------------------------------------------------
+# Email Identification Gate
+# ---------------------------------------------------------------------------
+
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
+
+if not st.session_state.user_email:
+    st.markdown(
+        "<div style='text-align:center; padding-top:60px;'>"
+        "<h2>\U0001f4e7 One Last Step</h2>"
+        "<p style='color:gray;'>"
+        "Enter your email to continue. This is used to track your usage quota."
+        "</p></div>",
+        unsafe_allow_html=True,
+    )
+
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    with col_center:
+        email_input = st.text_input(
+            "Your Email",
+            placeholder="you@example.com",
+        )
+
+        if st.button("Continue", use_container_width=True, type="primary"):
+            email = email_input.strip().lower()
+            if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                st.error("Please enter a valid email address.")
+            else:
+                st.session_state.user_email = email
+                st.rerun()
+
+        st.caption("Your email is only used for usage tracking — never shared.")
+
+    st.stop()
+
+
 # =========================================================================
-#  AUTHENTICATED — Main App below
+#  AUTHENTICATED + IDENTIFIED — Main App below
 # =========================================================================
 
+from db import get_upload_count, increment_upload_count, get_remaining_quota, MAX_UPLOADS
+
+user_email = st.session_state.user_email
+current_usage = get_upload_count(user_email)
+remaining = MAX_UPLOADS - current_usage
+
 # ---------------------------------------------------------------------------
-# Sidebar: About info (API key resolved from secrets/env only)
+# Sidebar: About info + Usage indicator
 # ---------------------------------------------------------------------------
 
 # Resolve API key silently: secrets > env var
@@ -76,6 +120,20 @@ except FileNotFoundError:
     pass
 
 with st.sidebar:
+    # Usage indicator
+    st.header("Your Usage")
+    st.progress(min(current_usage / MAX_UPLOADS, 1.0))
+    if remaining > 0:
+        st.markdown(
+            f"**{current_usage} / {MAX_UPLOADS}** extractions used · "
+            f"**{remaining}** remaining"
+        )
+    else:
+        st.error(f"**{current_usage} / {MAX_UPLOADS}** — Limit reached")
+    st.caption(f"Logged in as **{user_email}**")
+
+    st.divider()
+
     st.header("About")
     st.markdown(
         "**Parserix** extracts key fields from Indian GST invoices "
@@ -226,14 +284,32 @@ st.markdown(
     "Upload one or more Indian GST Invoices (PDF or image) to extract structured data."
 )
 
+# --- Quota hard-block if already at limit ---
+if remaining <= 0:
+    st.error(
+        f"🚫 You've reached your **{MAX_UPLOADS}-file extraction limit**. "
+        "Contact the Parserix team to request additional quota."
+    )
+    st.stop()
+
 uploaded_files = st.file_uploader(
     "Upload Invoices",
     type=["pdf", "png", "jpg", "jpeg"],
     accept_multiple_files=True,
-    help="Upload up to 10 invoices at once. Supported: PDF, PNG, JPG",
+    help=f"You have {remaining} extraction(s) remaining. Supported: PDF, PNG, JPG",
 )
 
 if uploaded_files:
+    # --- Quota check: will this batch exceed the limit? ---
+    total = len(uploaded_files)
+    if total > remaining:
+        st.error(
+            f"You selected **{total}** file(s), but you only have "
+            f"**{remaining}** extraction(s) remaining. "
+            f"Please remove {total - remaining} file(s) and try again."
+        )
+        st.stop()
+
     # --- Validate API key before processing ---
     if not api_key:
         st.error(
@@ -245,7 +321,7 @@ if uploaded_files:
     from extraction.extractor import extract_invoice_fields
 
     all_results: list[dict] = []  # collect for master CSV
-    total = len(uploaded_files)
+    extractions_this_session = 0
 
     progress_bar = st.progress(0, text="Starting extraction...")
 
@@ -308,6 +384,10 @@ if uploaded_files:
                                 key=f"dl_{idx}",
                             )
 
+                            # ✅ Increment usage in Supabase
+                            increment_upload_count(user_email, 1)
+                            extractions_this_session += 1
+
                             # Add to aggregate (include source filename)
                             flat = {"source_file": file_name, **result}
                             # Flatten confidence into the row
@@ -321,6 +401,13 @@ if uploaded_files:
                             st.error(f"An unexpected error occurred: {e}")
 
     progress_bar.progress(1.0, text=f"Done — {total} invoice(s) processed.")
+
+    if extractions_this_session > 0:
+        new_remaining = remaining - extractions_this_session
+        st.info(
+            f"📊 **{extractions_this_session}** extraction(s) used this session · "
+            f"**{max(0, new_remaining)}** remaining"
+        )
 
     # -----------------------------------------------------------------------
     # Master Summary — aggregate all results
