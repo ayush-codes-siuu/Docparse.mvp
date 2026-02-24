@@ -14,31 +14,68 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Sidebar: API key input + info
+# Beta Access Gate
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.header("Configuration")
-    api_key_input = st.text_input(
-        "Groq API Key",
-        type="password",
-        placeholder="gsk_...",
-        help="Required to analyse invoices. Not stored anywhere.",
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown(
+        "<div style='text-align:center; padding-top:80px;'>"
+        "<h1>\U0001f4c4 Parserix</h1>"
+        "<p style='font-size:1.15rem; color:gray;'>"
+        "AI-Powered GST Invoice Extraction — Beta Access Only"
+        "</p></div>",
+        unsafe_allow_html=True,
     )
 
-    # Resolve API key: sidebar > secrets > env var
-    api_key = api_key_input or os.environ.get("GROQ_API_KEY")
-    try:
-        if not api_key and "GROQ_API_KEY" in st.secrets:
-            api_key = st.secrets["GROQ_API_KEY"]
-    except FileNotFoundError:
-        pass
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    with col_center:
+        st.markdown("")  # spacer
+        access_code = st.text_input(
+            "Beta Access Code",
+            type="password",
+            placeholder="Enter your access code",
+        )
 
-    if api_key:
-        st.success("API Key: Configured")
-    else:
-        st.warning("API Key: Not set")
+        if st.button("Unlock Access", use_container_width=True, type="primary"):
+            try:
+                passcode = st.secrets["BETA_PASSCODE"]
+            except (FileNotFoundError, KeyError):
+                st.error(
+                    "Server misconfiguration: BETA_PASSCODE not set in secrets."
+                )
+                st.stop()
 
-    st.divider()
+            if access_code == passcode:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Invalid Access Code. Please contact the team for access.")
+
+        st.caption("Don't have a code? Reach out to the Parserix team.")
+
+    st.stop()
+
+
+# =========================================================================
+#  AUTHENTICATED — Main App below
+# =========================================================================
+
+# ---------------------------------------------------------------------------
+# Sidebar: About info (API key resolved from secrets/env only)
+# ---------------------------------------------------------------------------
+
+# Resolve API key silently: secrets > env var
+api_key = os.environ.get("GROQ_API_KEY")
+try:
+    if not api_key and "GROQ_API_KEY" in st.secrets:
+        api_key = st.secrets["GROQ_API_KEY"]
+except FileNotFoundError:
+    pass
+
+with st.sidebar:
     st.header("About")
     st.markdown(
         "**Parserix** extracts key fields from Indian GST invoices "
@@ -55,7 +92,7 @@ with st.sidebar:
         "- Grand Total"
     )
     st.divider()
-    st.caption("Powered by Groq · Llama 3.2 90B Vision")
+    st.caption("Powered by Groq · Llama 4 Scout 17B")
 
 # ---------------------------------------------------------------------------
 # Tesseract availability check (lazy — only when OCR is actually needed)

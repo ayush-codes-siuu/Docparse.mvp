@@ -63,7 +63,7 @@ EXPECTED_FIELDS = [
 
 
 def extract_invoice_fields(raw_text: str, api_key: str | None = None) -> dict:
-    """Send raw invoice text to Groq (Llama 3.2 90B Vision) and return structured fields.
+    """Send raw invoice text to Groq (Llama 4 Scout 17B) and return structured fields.
 
     Args:
         raw_text: The extracted text from the invoice document.
@@ -87,7 +87,7 @@ def extract_invoice_fields(raw_text: str, api_key: str | None = None) -> dict:
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.2-90b-vision-preview",
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": raw_text},
